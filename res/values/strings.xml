@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LTW Unlock</string>
+    <string name="xposed_description">Unlock Link to Windows / Phone Link on non-OEM devices. v1.3: system_server ClipboardService bypass for com.microsoft.appmanager only. Scope: 系统框架 + 连接到 Windows. Open app icon for logs.</string>
+    <string name="log_title">LTW Unlock Logs</string>
+</resources>

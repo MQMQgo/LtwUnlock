@@ -1,0 +1,9 @@
+build/
+dist/
+*.apk
+*.jks
+*.keystore
+*.p12
+signing.local.sh
+env.local.sh
+*.local.properties
