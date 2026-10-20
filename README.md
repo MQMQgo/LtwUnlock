@@ -1,5 +1,11 @@
 # LtwUnlock
 
+> [!CAUTION]
+> **🤖 本项目完全由 AI 编写，代码未经任何人工审查。**
+> 从逆向分析、代码实现、构建到文档，全部由 AI 助手完成；作者仅在自己的设备上做了功能测试。模块会注入 system_server，请在理解风险后自行决定是否使用。
+>
+> **🤖 This project was written entirely by AI. The code has NOT been reviewed by a human.** Analysis, implementation, build and docs were all done by an AI assistant; the author only tested it on their own device. It hooks system_server, so use it at your own risk.
+
 让微软「连接到 Windows」（Link to Windows，`com.microsoft.appmanager`）在非官方支持的 Android ROM 上正常工作的 LSPosed 模块（现代 libxposed API 101）。目前仅在魅族 Flyme 上测试。
 
 > ⚠️ 非官方项目，与 Microsoft 无关，也未获其认可或背书。详见文末免责声明。
