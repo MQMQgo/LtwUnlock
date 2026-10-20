@@ -6,15 +6,14 @@
 >
 > **🤖 This project was written entirely by AI. The code has NOT been reviewed by a human.** Implementation, build and docs were all done by an AI assistant; the author only tested it on their own device. It hooks system_server, so use it at your own risk.
 
-让微软「连接到 Windows」（Link to Windows，`com.microsoft.appmanager`）在非官方支持的 Android ROM 上正常工作的 LSPosed 模块（现代 libxposed API 101）。目前仅在魅族 Flyme 上测试。
+在非官方支持的设备上，为微软「连接到 Windows」实现原生剪贴板同步及后台保活的 LSPosed 模块。
 
 > ⚠️ 非官方项目，与 Microsoft 无关，也未获其认可或背书。详见文末免责声明。
 
 ## 功能
 
-1. **LTW 应用内**：强制启用原生（organic）剪贴板监听器，解锁剪贴板等能力标志位。
-2. **system_server · 剪贴板**：仅让 LTW 通过 `ClipboardService` 的后台焦点检查（其他应用不受影响），实现后台剪贴板同步。
-3. **system_server · 防冻结**：阻止 cached-app freezer 冻结 LTW（仅 LTW），修复后台断连和延迟；并把 LTW 的 App Standby bucket 提升到 ACTIVE。
+- 原生剪贴板同步（手机 ↔ 电脑）
+- 后台保活，避免断连和同步延迟
 
 ## 要求
 
@@ -79,7 +78,7 @@ GPL-3.0，见 [LICENSE](LICENSE)。
 
 **LtwUnlock** is an LSPosed module (modern libxposed API 101) that makes Microsoft *Link to Windows* (`com.microsoft.appmanager`) work on unsupported ROMs. Tested only on Meizu Flyme.
 
-- **Features:** forces LTW's organic clipboard listener and unlocks capability flags; in system_server lets *only* LTW pass ClipboardService's background-focus check; stops the cached-app freezer from freezing *only* LTW (fixes background disconnects/latency).
+- **Features:** native clipboard sync and background keep-alive for Link to Windows on unsupported devices.
 - **Requirements:** root + LSPosed with modern API support; scope **System Framework** + **Link to Windows**; reboot after enabling.
 - **Verify:** module log page; `cgroup.freeze` under `/sys/fs/cgroup/apps/uid_X/pid_Y` should stay `0`.
 - **Limitations:** hotspot, phone/calls and screen mirroring not supported; vendor freezers (MIUI Millet, ColorOS Hans…) may not be covered.
