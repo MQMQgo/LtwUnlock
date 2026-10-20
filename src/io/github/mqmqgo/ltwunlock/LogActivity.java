@@ -3,14 +3,12 @@ package io.github.mqmqgo.ltwunlock;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -35,59 +33,56 @@ public final class LogActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        float dp = getResources().getDisplayMetrics().density;
-        int pad = (int) (12 * dp);
+        int side = Ui.dp(this, 16);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-        root.setBackgroundColor(Color.parseColor("#121212"));
+        root.setPadding(side, Ui.dp(this, 20), side, side);
 
-        TextView headerView = new TextView(this);
-        headerView.setTextColor(Color.parseColor("#E0E0E0"));
-        headerView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        headerView.setTypeface(Typeface.SANS_SERIF);
-        headerView.setText(buildHeader());
-        root.addView(headerView, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back = Ui.text(this, "‹", 30, R.color.ltw_on_bg, false);
+        back.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 16), Ui.dp(this, 4));
+        back.setBackground(Ui.rowRipple(this));
+        back.setOnClickListener(v -> finish());
+        top.addView(back);
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        titles.addView(Ui.text(this, getString(R.string.log_title), 24, R.color.ltw_on_bg, false));
+        titles.addView(Ui.text(this, buildHeader(), 12, R.color.ltw_on_bg_variant, false));
+        top.addView(titles);
+        root.addView(top);
 
         LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
         buttons.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams btnRowLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        btnRowLp.topMargin = (int) (8 * dp);
-        btnRowLp.bottomMargin = (int) (8 * dp);
+        LinearLayout.LayoutParams btnRowLp = new LinearLayout.LayoutParams(-1, -2);
+        btnRowLp.topMargin = Ui.dp(this, 16);
+        btnRowLp.bottomMargin = Ui.dp(this, 12);
         root.addView(buttons, btnRowLp);
-
-        buttons.addView(makeButton("Refresh", v -> refresh()), weightLp(1f, dp));
-        buttons.addView(makeButton("Clear", v -> {
+        buttons.addView(Ui.button(this, "刷新", false, v -> refresh()), weightLp(this));
+        buttons.addView(Ui.button(this, "清空", false, v -> {
             ModuleLog.clear(this);
             refresh();
-            Toast.makeText(this, "Logs cleared", Toast.LENGTH_SHORT).show();
-        }), weightLp(1f, dp));
-        buttons.addView(makeButton("Export", v -> exportLog()), weightLp(1f, dp));
+            Toast.makeText(this, "日志已清空", Toast.LENGTH_SHORT).show();
+        }), weightLp(this));
+        buttons.addView(Ui.button(this, "导出", true, v -> exportLog()), weightLp(this));
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        root.addView(scroll, scrollLp);
+        scroll.setBackground(Ui.round(getColor(R.color.ltw_log_bg), Ui.dp(this, 20)));
+        scroll.setClipToOutline(true);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         HorizontalScrollView hScroll = new HorizontalScrollView(this);
-        scroll.addView(hScroll, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
+        scroll.addView(hScroll, new ScrollView.LayoutParams(-1, -2));
 
         logView = new TextView(this);
-        logView.setTextColor(Color.parseColor("#A5D6A7"));
+        logView.setTextColor(getColor(R.color.ltw_log_text));
         logView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         logView.setTypeface(Typeface.MONOSPACE);
         logView.setTextIsSelectable(true);
-        logView.setPadding((int) (4 * dp), (int) (4 * dp), (int) (4 * dp), (int) (4 * dp));
+        int p = Ui.dp(this, 14);
+        logView.setPadding(p, p, p, p);
         hScroll.addView(logView);
 
         setContentView(root);
@@ -110,7 +105,7 @@ public final class LogActivity extends Activity {
             code = (int) pi.getLongVersionCode();
         } catch (Throwable ignored) {
         }
-        return "LTW Unlock  v" + ver + " (" + code + ")\n" + SCOPE_HINT;
+        return "v" + ver + " (" + code + ") · 系统框架 + 连接到 Windows";
     }
 
     private void refresh() {
@@ -145,7 +140,7 @@ public final class LogActivity extends Activity {
             send.putExtra(Intent.EXTRA_TEXT, body);
             send.putExtra(Intent.EXTRA_STREAM, uri);
             send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(send, "Export LtwUnlock log"));
+            startActivity(Intent.createChooser(send, "导出 LtwUnlock 日志"));
             ModuleLog.ui(this, "Export shared (" + out.length() + " bytes)");
         } catch (Throwable t) {
             try {
@@ -154,27 +149,18 @@ public final class LogActivity extends Activity {
                 send.putExtra(Intent.EXTRA_SUBJECT, "LtwUnlock log");
                 send.putExtra(Intent.EXTRA_TEXT, text.length() > 200_000
                         ? text.substring(text.length() - 200_000) : text);
-                startActivity(Intent.createChooser(send, "Export LtwUnlock log"));
+                startActivity(Intent.createChooser(send, "导出 LtwUnlock 日志"));
             } catch (Throwable t2) {
-                Toast.makeText(this, "Export failed: " + t2.getMessage(),
+                Toast.makeText(this, "导出失败：" + t2.getMessage(),
                         Toast.LENGTH_LONG).show();
                 ModuleLog.e("Export failed", t2);
             }
         }
     }
 
-    private Button makeButton(String label, View.OnClickListener listener) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setOnClickListener(listener);
-        return b;
-    }
-
-    private static LinearLayout.LayoutParams weightLp(float weight, float dp) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, weight);
-        int m = (int) (4 * dp);
+    private static LinearLayout.LayoutParams weightLp(android.content.Context ctx) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+        int m = Ui.dp(ctx, 4);
         lp.setMargins(m, 0, m, 0);
         return lp;
     }

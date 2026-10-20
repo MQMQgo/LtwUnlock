@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ltw_bg">#F3F6F0</color>
+    <color name="ltw_card">#FFFFFF</color>
+    <color name="ltw_card_stroke">#DCE5D7</color>
+    <color name="ltw_on_bg">#1A231D</color>
+    <color name="ltw_on_bg_variant">#56665A</color>
+    <color name="ltw_primary">#354F3C</color>
+    <color name="ltw_on_primary">#FFFFFF</color>
+    <color name="ltw_primary_container">#D5E5CF</color>
+    <color name="ltw_on_primary_container">#132A1B</color>
+    <color name="ltw_accent">#E57960</color>
+    <color name="ltw_accent_container">#FBE1DA</color>
+    <color name="ltw_log_bg">#EAF0E6</color>
+    <color name="ltw_log_text">#283F30</color>
+</resources>
