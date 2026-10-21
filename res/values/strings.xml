@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">LTW Unlock</string>
-    <string name="xposed_description">在非官方支持的设备上实现「连接到 Windows」原生剪贴板同步及后台保活。作用域：系统框架 + 连接到 Windows。</string>
+    <string name="xposed_description">在非官方支持的设备上实现「连接到 Windows」原生剪贴板同步及后台保活。作用域：系统框架 + 连接到 Windows + 本模块。</string>
     <string name="log_title">运行日志</string>
     <string name="desc">在非官方支持的设备上实现「连接到 Windows」原生剪贴板同步及后台保活</string>
 </resources>

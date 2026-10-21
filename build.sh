@@ -6,8 +6,8 @@ cd "$(dirname "$0")"
 BT=$ANDROID_HOME/build-tools/34.0.0
 AJ=$ANDROID_HOME/platforms/android-34/android.jar
 OUT_DIR=${OUT_DIR:-dist}
-VERSION_NAME=1.5.1
-VERSION_CODE=7
+VERSION_NAME=1.5.2
+VERSION_CODE=8
 APK_NAME=${APK_NAME:-LtwUnlock-v${VERSION_NAME}.apk}
 mkdir -p "$OUT_DIR" build/gen build/classes build/dex build/astubs
 

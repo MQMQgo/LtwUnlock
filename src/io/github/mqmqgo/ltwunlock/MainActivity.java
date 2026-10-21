@@ -15,8 +15,6 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
-import java.io.File;
-
 /** Module home / settings (launcher alias + LSPosed MODULE_SETTINGS entry). */
 public final class MainActivity extends Activity {
     private TextView statusText;
@@ -73,7 +71,7 @@ public final class MainActivity extends Activity {
         // Scope card
         LinearLayout scope = Ui.card(this);
         scope.addView(Ui.text(this, "作用域", 16, R.color.ltw_on_bg, true));
-        TextView sc = Ui.text(this, "• 系统框架（android / system）\n• 连接到 Windows（com.microsoft.appmanager）\n在 LSPosed 中勾选以上作用域后重启设备生效。",
+        TextView sc = Ui.text(this, "• 系统框架（android / system）\n• 连接到 Windows（com.microsoft.appmanager）\n• 本模块（用于检测是否已激活）\n在 LSPosed 中勾选以上作用域后重启设备生效。",
                 14, R.color.ltw_on_bg_variant, false);
         sc.setPadding(0, Ui.dp(this, 8), 0, 0);
         scope.addView(sc);
@@ -167,26 +165,18 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshStatus() {
-        new Thread(() -> {
-            File hook = new File(ModuleLog.HOOK_LOG_PATH);
-            File ss = new File(ModuleLog.SS_LOG_PATH);
-            boolean h = hook.canRead() && hook.length() > 0;
-            boolean s = ss.canRead() && ss.length() > 0;
-            runOnUiThread(() -> {
-                if (h || s) {
-                    statusPill.setText("已检测到 Hook");
-                    statusPill.setBackground(Ui.round(getColor(R.color.ltw_primary), Ui.dp(this, 100)));
-                    statusPill.setTextColor(getColor(R.color.ltw_on_primary));
-                    statusText.setText((s ? "系统框架 Hook 日志存在" : "")
-                            + (h && s ? "；" : "") + (h ? "应用 Hook 日志存在" : ""));
-                } else {
-                    statusPill.setText("未检测到");
-                    statusPill.setBackground(Ui.round(getColor(R.color.ltw_accent_container), Ui.dp(this, 100)));
-                    statusPill.setTextColor(getColor(R.color.ltw_accent));
-                    statusText.setText("未读取到 Hook 日志：可能未在 LSPosed 中启用、尚未重启，或 SELinux 阻止读取（可在日志页通过 root 查看）。");
-                }
-            });
-        }).start();
+        boolean on = ModuleStatus.isActivated();
+        if (on) {
+            statusPill.setText("已激活");
+            statusPill.setBackground(Ui.round(getColor(R.color.ltw_primary), Ui.dp(this, 100)));
+            statusPill.setTextColor(getColor(R.color.ltw_on_primary));
+            statusText.setText("模块已在 LSPosed 中生效");
+        } else {
+            statusPill.setText("未激活");
+            statusPill.setBackground(Ui.round(getColor(R.color.ltw_accent_container), Ui.dp(this, 100)));
+            statusPill.setTextColor(getColor(R.color.ltw_accent));
+            statusText.setText("请在 LSPosed 中启用本模块，勾选推荐作用域（系统框架 + 连接到 Windows + 本模块），然后重启设备；若仍显示未激活，可强制停止本应用后再打开。");
+        }
     }
 
     private String versionString() {

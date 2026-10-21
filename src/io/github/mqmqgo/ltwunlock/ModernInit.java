@@ -11,6 +11,7 @@ public final class ModernInit extends XposedModule {
     private static final String TAG = "LtwUnlock";
     private static final String TARGET = "com.microsoft.appmanager";
     private static final String ANDROID = "android";
+    private static final String SELF = "io.github.mqmqgo.ltwunlock";
 
     private static volatile boolean sSsInstalled;
     private static volatile boolean sKeepAliveInstalled;
@@ -51,6 +52,11 @@ public final class ModernInit extends XposedModule {
             return;
         }
 
+        if (SELF.equals(pkg)) {
+            installSelfCheck(loader);
+            return;
+        }
+
         if (!TARGET.equals(pkg)) {
             return;
         }
@@ -72,6 +78,19 @@ public final class ModernInit extends XposedModule {
         } catch (Throwable t) {
             ModuleLog.e(TAG, "FeatureUnlockHooks failed", t);
             log(Log.ERROR, TAG, "FeatureUnlockHooks failed", t);
+        }
+    }
+
+    private void installSelfCheck(ClassLoader loader) {
+        HookBridge.Installer installer = HookBridge.installer(this, loader);
+        try {
+            installer.hook(ModuleStatus.class.getName(), "isActivated",
+                    chain -> Boolean.TRUE);
+            ModuleLog.i(TAG, "Self-check hook installed in " + SELF);
+            log(Log.INFO, TAG, "Self-check hook installed in " + SELF);
+        } catch (Throwable t) {
+            ModuleLog.e(TAG, "Self-check hook failed", t);
+            log(Log.ERROR, TAG, "Self-check hook failed", t);
         }
     }
 
