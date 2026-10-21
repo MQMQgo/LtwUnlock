@@ -39,6 +39,12 @@
             android:label="@string/log_title"
             android:theme="@style/LtwTheme" />
 
+        <!-- libxposed service 102.0.0 binder delivery -->
+        <provider
+            android:name="io.github.libxposed.service.XposedProvider"
+            android:authorities="io.github.mqmqgo.ltwunlock.XposedService"
+            android:exported="true" />
+
         <provider
             android:name=".LtwFileProvider"
             android:authorities="io.github.mqmqgo.ltwunlock.fileprovider"

@@ -15,8 +15,13 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import io.github.libxposed.service.XposedService;
+
 /** Module home / settings (launcher alias + LSPosed MODULE_SETTINGS entry). */
-public final class MainActivity extends Activity {
+public final class MainActivity extends Activity implements XposedStatus.Listener {
     private TextView statusText;
     private TextView statusPill;
     private Switch hideSwitch;
@@ -29,6 +34,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        XposedStatus.init();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
@@ -71,7 +77,7 @@ public final class MainActivity extends Activity {
         // Scope card
         LinearLayout scope = Ui.card(this);
         scope.addView(Ui.text(this, "作用域", 16, R.color.ltw_on_bg, true));
-        TextView sc = Ui.text(this, "• 系统框架（android / system）\n• 连接到 Windows（com.microsoft.appmanager）\n• 本模块（用于检测是否已激活）\n在 LSPosed 中勾选以上作用域后重启设备生效。",
+        TextView sc = Ui.text(this, "• 系统框架（android / system）\n• 连接到 Windows（com.microsoft.appmanager）\n在 LSPosed 中勾选以上作用域后重启设备生效。",
                 14, R.color.ltw_on_bg_variant, false);
         sc.setPadding(0, Ui.dp(this, 8), 0, 0);
         scope.addView(sc);
@@ -107,6 +113,23 @@ public final class MainActivity extends Activity {
         root.addView(foot, flp);
 
         setContentView(scroll);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        XposedStatus.addListener(this);
+    }
+
+    @Override
+    protected void onStop() {
+        XposedStatus.removeListener(this);
+        super.onStop();
+    }
+
+    @Override
+    public void onChanged() {
+        if (!isFinishing() && !isDestroyed()) refreshStatus();
     }
 
     @Override
@@ -165,18 +188,42 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshStatus() {
-        boolean on = ModuleStatus.isActivated();
-        if (on) {
-            statusPill.setText("已激活");
-            statusPill.setBackground(Ui.round(getColor(R.color.ltw_primary), Ui.dp(this, 100)));
-            statusPill.setTextColor(getColor(R.color.ltw_on_primary));
-            statusText.setText("模块已在 LSPosed 中生效");
-        } else {
-            statusPill.setText("未激活");
-            statusPill.setBackground(Ui.round(getColor(R.color.ltw_accent_container), Ui.dp(this, 100)));
-            statusPill.setTextColor(getColor(R.color.ltw_accent));
-            statusText.setText("请在 LSPosed 中启用本模块，勾选推荐作用域（系统框架 + 连接到 Windows + 本模块），然后重启设备；若仍显示未激活，可强制停止本应用后再打开。");
+        XposedService svc = XposedStatus.service();
+        if (svc == null) {
+            setPill("未激活", false);
+            statusText.setText("未连接到 LSPosed 服务。请在 LSPosed 管理器中启用本模块，勾选「系统框架」与「连接到 Windows」作用域后重启设备。");
+            return;
         }
+        String fw;
+        List<String> scope;
+        try {
+            fw = svc.getFrameworkName() + " " + svc.getFrameworkVersion()
+                    + " (API " + svc.getApiVersion() + ")";
+            scope = svc.getScope();
+        } catch (Throwable t) {
+            setPill("未激活", false);
+            statusText.setText("LSPosed 服务调用失败：" + t.getMessage());
+            return;
+        }
+        if (scope == null) scope = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        if (!scope.contains("android") && !scope.contains("system")) missing.add("系统框架");
+        if (!scope.contains("com.microsoft.appmanager")) missing.add("连接到 Windows");
+        if (missing.isEmpty()) {
+            setPill("已激活", true);
+            statusText.setText("模块已在 LSPosed 中生效\n" + fw);
+        } else {
+            setPill("未完全激活", false);
+            statusText.setText("模块已启用，但缺少作用域：" + String.join("、", missing)
+                    + "。请在 LSPosed 中勾选后重启设备。\n" + fw);
+        }
+    }
+
+    private void setPill(String text, boolean ok) {
+        statusPill.setText(text);
+        statusPill.setBackground(Ui.round(getColor(ok ? R.color.ltw_primary : R.color.ltw_accent_container),
+                Ui.dp(this, 100)));
+        statusPill.setTextColor(getColor(ok ? R.color.ltw_on_primary : R.color.ltw_accent));
     }
 
     private String versionString() {

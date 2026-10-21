@@ -22,15 +22,20 @@ $BT/aapt2 link -I "$AJ" --manifest AndroidManifest.xml -o build/base.apk \
   build/res.zip --java build/gen --min-sdk-version 29 --target-sdk-version 34 \
   --version-code "$VERSION_CODE" --version-name "$VERSION_NAME"
 
+# Vendored libxposed service (Apache-2.0), needs Java 17 (records)
+mkdir -p build/lxs
+javac --release 17 -nowarn -cp "$AJ:lib/libxposed-annotation.jar:build/androidx-stubs.jar" \
+  -d build/lxs $(find third_party/libxposed-service/src -name '*.java')
+
 find src -name '*.java' > build/src.list
 # Include generated R.java if present
 find build/gen -name '*.java' >> build/src.list || true
-CP="$AJ:$BT/core-lambda-stubs.jar:lib/libxposed-api.jar:lib/libxposed-annotation.jar:build/androidx-stubs.jar"
+CP="$AJ:$BT/core-lambda-stubs.jar:lib/libxposed-api.jar:lib/libxposed-annotation.jar:build/androidx-stubs.jar:build/lxs"
 javac -source 8 -target 8 -bootclasspath "$AJ" -classpath "$CP" \
   -Xlint:-options -d build/classes @build/src.list
 
 $BT/d8 --release --min-api 29 --lib "$AJ" --output build/dex \
-  $(find build/classes -name '*.class')
+  $(find build/classes build/lxs -name '*.class')
 
 python3 - <<'PY'
 import zipfile, shutil, os
