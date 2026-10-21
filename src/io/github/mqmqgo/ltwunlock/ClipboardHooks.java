@@ -4,6 +4,9 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 
 import io.github.libxposed.api.XposedInterface;
 
@@ -19,6 +22,10 @@ final class ClipboardHooks {
             "com.microsoft.appmanager.extgeneric.clipboard.ExtGenericClipboardManagerBroker";
     private static final String CLIPBOARD_CAP_PROVIDER =
             "com.microsoft.appmanager.clipboard.ClipboardCapabilityProvider";
+    /** Identity set: Base+ExtGeneric brokers must not register the same listener twice. */
+    private static final Set<ClipboardManager.OnPrimaryClipChangedListener> REGISTERED_LISTENERS =
+            Collections.newSetFromMap(
+                    new IdentityHashMap<ClipboardManager.OnPrimaryClipChangedListener, Boolean>());
 
     void install(ClassLoader loader, HookBridge.Installer installer) {
         hookIsClipListenerSupported(installer);
@@ -63,6 +70,13 @@ final class ClipboardHooks {
                     ModuleLog.w(TAG, "addPrimaryClipListener: no ClipboardManager, proceeding");
                     return chain.proceed();
                 }
+                synchronized (REGISTERED_LISTENERS) {
+                    if (!REGISTERED_LISTENERS.add(listener)) {
+                        ModuleLog.i(TAG, "addPrimaryClipListener SKIP duplicate ("
+                                + thiz.getClass().getSimpleName() + ") — prevents double sync");
+                        return null;
+                    }
+                }
                 cm.addPrimaryClipChangedListener(listener);
                 ModuleLog.i(TAG, "addPrimaryClipListener → ClipboardManager registered ("
                         + thiz.getClass().getSimpleName() + ")");
@@ -82,6 +96,9 @@ final class ClipboardHooks {
                 if (cm != null) {
                     try {
                         cm.removePrimaryClipChangedListener(listener);
+                        synchronized (REGISTERED_LISTENERS) {
+                            REGISTERED_LISTENERS.remove(listener);
+                        }
                         ModuleLog.i(TAG, "removePrimaryClipListener → ClipboardManager unregistered ("
                                 + thiz.getClass().getSimpleName() + ")");
                     } catch (Throwable t) {

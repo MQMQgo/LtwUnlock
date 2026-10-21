@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.5.3 (versionCode 14)
+- 支持将手机上复制的图片同步到电脑剪贴板
+- 修复图片在电脑上出现两次
+- 新增无 root 日志中转，日志可在模块内查看/导出
+- 修复系统框架相关误报日志
+
 ## v1.5.0 (versionCode 6)
 - 新增 `SystemServerKeepAliveHooks`：仅对 LTW 绕过 CachedAppOptimizer 冻结（freezeApp*/FreezeHandler），`Process.setProcessFrozen` 兜底，自动解冻已冻结的 LTW 进程
 - App Standby：LTW bucket 低于 WORKING_SET 时提升为 ACTIVE

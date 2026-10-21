@@ -1,7 +1,5 @@
 package io.github.mqmqgo.ltwunlock;
 
-import android.util.Log;
-
 import androidx.annotation.NonNull;
 
 import io.github.libxposed.api.XposedModule;
@@ -14,19 +12,25 @@ public final class ModernInit extends XposedModule {
 
     private static volatile boolean sSsInstalled;
     private static volatile boolean sKeepAliveInstalled;
+    /** True only in the real system_server process (set by onModuleLoaded/onSystemServerStarting). */
+    private static volatile boolean sInSystemServer;
 
     @Override
     public void onModuleLoaded(@NonNull XposedModuleInterface.ModuleLoadedParam param) {
+        ModuleLog.attach(this, param.isSystemServer());
         if (param.isSystemServer()) {
+            sInSystemServer = true;
             ModuleLog.setSystemServer(true);
             ModuleLog.i(TAG, "onModuleLoaded(system_server)");
-            log(Log.INFO, TAG, "onModuleLoaded(system_server)");
+        } else {
+            ModuleLog.i(TAG, "onModuleLoaded(app) pkgHint ss=" + param.isSystemServer());
         }
     }
 
     @Override
     public void onSystemServerStarting(
             @NonNull XposedModuleInterface.SystemServerStartingParam param) {
+        sInSystemServer = true;
         ModuleLog.setSystemServer(true);
         installSystemServer("onSystemServerStarting", param.getClassLoader());
     }
@@ -34,7 +38,7 @@ public final class ModernInit extends XposedModule {
     @Override
     public void onPackageLoaded(@NonNull XposedModuleInterface.PackageLoadedParam param) {
         if (ANDROID.equals(param.getPackageName())) {
-            ModuleLog.setSystemServer(true);
+            if (!sInSystemServer) return; // other uid-1000 process (e.g. settings/:ui) — stay quiet
             installSystemServer("onPackageLoaded(android)", param.getDefaultClassLoader());
         }
     }
@@ -44,9 +48,8 @@ public final class ModernInit extends XposedModule {
         String pkg = param.getPackageName();
         ClassLoader loader = param.getClassLoader();
 
-        // Backup if a framework build skips onSystemServerStarting.
         if (ANDROID.equals(pkg)) {
-            ModuleLog.setSystemServer(true);
+            if (!sInSystemServer) return; // not system_server — skip SS hooks quietly
             installSystemServer("onPackageReady(android)", loader);
             return;
         }
@@ -57,29 +60,54 @@ public final class ModernInit extends XposedModule {
         ModuleLog.setSystemServer(false);
         HookBridge.Installer installer = HookBridge.installer(this, loader);
         ModuleLog.i(TAG, "ModernInit onPackageReady for " + pkg);
+
+        // Before any LogRelay send: ensure LTW can resolve our LogProvider authority
+        try {
+            ProviderVisibilityHooks.install(this, loader);
+        } catch (Throwable t) {
+            ModuleLog.e(TAG, "ProviderVisibilityHooks failed: " + t);
+            ModuleLog.e(TAG, "ProviderVisibilityHooks failed", t);
+        }
+
         try {
             new ClipboardHooks().install(loader, installer);
             ModuleLog.i(TAG, "ClipboardHooks installed in " + pkg);
-            log(Log.INFO, TAG, "ClipboardHooks installed in " + pkg);
         } catch (Throwable t) {
+            ModuleLog.e(TAG, "ClipboardHooks failed: " + t);
             ModuleLog.e(TAG, "ClipboardHooks failed", t);
-            log(Log.ERROR, TAG, "ClipboardHooks failed", t);
+        }
+        try {
+            new ImageClipboardHooks().install(loader, installer);
+            ModuleLog.i(TAG, "ImageClipboardHooks installed in " + pkg);
+        } catch (Throwable t) {
+            ModuleLog.e(TAG, "ImageClipboardHooks failed: " + t);
+            ModuleLog.e(TAG, "ImageClipboardHooks failed", t);
+        }
+        try {
+            ClipboardRequestDedupeHooks.install(installer);
+            ModuleLog.i(TAG, "ClipboardRequestDedupeHooks installed in " + pkg);
+        } catch (Throwable t) {
+            ModuleLog.e(TAG, "ClipboardRequestDedupeHooks failed", t);
         }
         try {
             new FeatureUnlockHooks().install(loader, installer);
             ModuleLog.i(TAG, "FeatureUnlockHooks installed in " + pkg);
-            log(Log.INFO, TAG, "FeatureUnlockHooks installed in " + pkg);
         } catch (Throwable t) {
+            ModuleLog.e(TAG, "FeatureUnlockHooks failed: " + t);
             ModuleLog.e(TAG, "FeatureUnlockHooks failed", t);
-            log(Log.ERROR, TAG, "FeatureUnlockHooks failed", t);
         }
     }
 
     private void installSystemServer(String via, ClassLoader loader) {
         if (sSsInstalled && sKeepAliveInstalled) {
             ModuleLog.i(TAG, "SS hooks already installed; skip via=" + via);
-            log(Log.INFO, TAG, "SS hooks already installed; skip via=" + via);
             return;
+        }
+        try {
+            PackageVisibilityHooks.install(this, loader);
+        } catch (Throwable t) {
+            ModuleLog.e(TAG, "PackageVisibilityHooks failed: " + t);
+            ModuleLog.e(TAG, "PackageVisibilityHooks failed", t);
         }
         if (!sSsInstalled) try {
             int n = SystemServerClipboardHooks.install(this, loader, via);
@@ -87,12 +115,9 @@ public final class ModernInit extends XposedModule {
             String msg = "SS ClipboardService hooks via=" + via + " count=" + n
                     + " installed=" + sSsInstalled;
             ModuleLog.i(TAG, msg);
-            log(Log.INFO, TAG, msg);
-            SystemServerClipboardHooks.SsLog.i(msg);
         } catch (Throwable t) {
+            ModuleLog.e(TAG, "SS install failed via=" + via + ": " + t);
             ModuleLog.e(TAG, "SS install failed via=" + via, t);
-            log(Log.ERROR, TAG, "SS install failed via=" + via, t);
-            SystemServerClipboardHooks.SsLog.e("install failed via=" + via, t);
         }
         if (sKeepAliveInstalled) {
             return;
@@ -103,12 +128,9 @@ public final class ModernInit extends XposedModule {
             String msg = "SS KeepAlive hooks via=" + via + " count=" + k
                     + " installed=" + sKeepAliveInstalled;
             ModuleLog.i(TAG, msg);
-            log(Log.INFO, TAG, msg);
-            SystemServerClipboardHooks.SsLog.i(msg);
         } catch (Throwable t) {
+            ModuleLog.e(TAG, "SS KeepAlive failed via=" + via + ": " + t);
             ModuleLog.e(TAG, "SS install failed via=" + via, t);
-            log(Log.ERROR, TAG, "KeepAlive install failed via=" + via, t);
-            SystemServerClipboardHooks.SsLog.e("KeepAlive install failed via=" + via, t);
         }
     }
 }

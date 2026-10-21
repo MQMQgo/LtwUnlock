@@ -33,10 +33,6 @@ final class HookBridge {
                 } catch (Throwable t) {
                     ModuleLog.w(TAG, "Cannot hook " + className + "#" + methodName
                             + (parameters == null ? "" : Arrays.toString(parameters)), t);
-                    try {
-                        xp.log(Log.WARN, TAG, "cannot hook " + className + "#" + methodName, t);
-                    } catch (Throwable ignored) {
-                    }
                 }
             }
 
@@ -57,10 +53,6 @@ final class HookBridge {
                     install(found, hooker);
                 } catch (Throwable t) {
                     ModuleLog.w(TAG, "Cannot hookByName " + className + "#" + methodName + "/" + arity, t);
-                    try {
-                        xp.log(Log.WARN, TAG, "cannot hookByName " + className + "#" + methodName, t);
-                    } catch (Throwable ignored) {
-                    }
                 }
             }
 

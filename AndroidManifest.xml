@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.mqmqgo.ltwunlock">
 
+    <queries>
+        <package android:name="com.microsoft.appmanager" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
@@ -43,6 +47,12 @@
         <provider
             android:name="io.github.libxposed.service.XposedProvider"
             android:authorities="io.github.mqmqgo.ltwunlock.XposedService"
+            android:exported="true" />
+
+        <!-- Hook log sink: call()-only, caller uid checked (system_server / LTW) -->
+        <provider
+            android:name=".LogProvider"
+            android:authorities="io.github.mqmqgo.ltwunlock.logs"
             android:exported="true" />
 
         <provider

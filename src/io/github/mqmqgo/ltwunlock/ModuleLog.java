@@ -10,42 +10,61 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.locks.ReentrantLock;
+
+import io.github.libxposed.api.XposedInterface;
 
 /**
- * Persistent log buffer for LtwUnlock.
+ * LtwUnlock logging.
  * <ul>
- *   <li>App-process hooks → logcat {@code LtwUnlock} + file
- *       {@link #HOOK_LOG_PATH} (and host filesDir fallback).</li>
- *   <li>system_server → logcat {@code LtwUnlock-SS} + {@code /data/local/tmp/ltwunlock-ss.log}.</li>
- *   <li>UI → app-private {@link #LOCAL_NAME}; export merges hook file +
- *       local + best-effort logcat dump.</li>
+ *   <li>Every line → android.util.Log (tag LtwUnlock / LtwUnlock-Img / LtwUnlock-SS).</li>
+ *   <li>Hook side → always {@link XposedInterface#log} with tag {@link #TAG} (LSPosed search);
+ *       channel is prefixed in the message ([SS]/[Img]/…).</li>
+ *   <li>Hook side → also {@link LogRelay} → module's {@link LogProvider}.</li>
  * </ul>
  */
 public final class ModuleLog {
     public static final String TAG = "LtwUnlock";
     public static final String TAG_SS = "LtwUnlock-SS";
-    /** Shared hook-side log (world-readable on many devices). */
-    public static final String HOOK_LOG_PATH = "/data/local/tmp/ltwunlock.log";
-    /** Secondary path often writable from app processes on rooted devices. */
-    public static final String HOOK_LOG_CACHE = "/cache/ltwunlock.log";
+    public static final String TAG_IMG = "LtwUnlock-Img";
     public static final String LOCAL_NAME = "ltwunlock.log";
-    private static final long MAX_BYTES = 512L * 1024L;
-    private static final ReentrantLock LOCK = new ReentrantLock();
+    private static final long MAX_LOCAL = 256L * 1024L;
     private static final SimpleDateFormat FMT =
             new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US);
 
     private static volatile boolean sSystemServer;
-    private static volatile File sHostFilesLog;
+    private static volatile boolean sHookProcess;
+    private static volatile XposedInterface sXp;
+    private static volatile String sProcLabel = "?";
+
+    // Soft client-side ceiling so a hot path cannot wedge LSPosed; INFO+ always attempts.
+    private static final Object RL = new Object();
+    private static long sWinStart;
+    private static int sWinCount;
+    private static int sDropped;
+    private static final int WIN_MAX = 800;
 
     private ModuleLog() {}
 
-    /** Mark current process as system_server (no file writes). */
+    /** Called from ModernInit in hooked processes. */
+    public static void attach(XposedInterface xp, boolean systemServer) {
+        sXp = xp;
+        sHookProcess = true;
+        if (systemServer) sSystemServer = true;
+        try {
+            sProcLabel = (systemServer ? "system_server" : "app")
+                    + " pid=" + Process.myPid() + " uid=" + Process.myUid();
+        } catch (Throwable ignored) {
+            sProcLabel = systemServer ? "system_server" : "app";
+        }
+        LogRelay.ensureStarted();
+        // Bootstrap line: proves attach + xp.log + relay path are wired.
+        i(TAG, "ModuleLog.attach ok (" + sProcLabel + ")");
+    }
+
     public static void setSystemServer(boolean ss) {
         sSystemServer = ss;
     }
@@ -54,129 +73,138 @@ public final class ModuleLog {
         return sSystemServer || Process.myUid() == Process.SYSTEM_UID;
     }
 
-    public static void d(String msg) {
-        log(Log.DEBUG, msg, null);
-    }
+    public static void d(String msg) { log(Log.DEBUG, null, msg, null); }
+    public static void d(String tag, String msg) { log(Log.DEBUG, tag, msg, null); }
+    public static void i(String msg) { log(Log.INFO, null, msg, null); }
+    public static void i(String tag, String msg) { log(Log.INFO, tag, msg, null); }
+    public static void w(String msg) { log(Log.WARN, null, msg, null); }
+    public static void w(String tag, String msg) { log(Log.WARN, tag, msg, null); }
+    public static void w(String msg, Throwable t) { log(Log.WARN, null, msg, t); }
+    public static void w(String tag, String msg, Throwable t) { log(Log.WARN, tag, msg, t); }
+    public static void e(String msg) { log(Log.ERROR, null, msg, null); }
+    public static void e(String tag, String msg) { log(Log.ERROR, tag, msg, null); }
+    public static void e(String msg, Throwable t) { log(Log.ERROR, null, msg, t); }
+    public static void e(String tag, String msg, Throwable t) { log(Log.ERROR, tag, msg, t); }
 
-    public static void d(String tag, String msg) {
-        log(Log.DEBUG, msg, null);
-    }
-
-    public static void i(String msg) {
-        log(Log.INFO, msg, null);
-    }
-
-    public static void i(String tag, String msg) {
-        log(Log.INFO, msg, null);
-    }
-
-    public static void w(String msg) {
-        log(Log.WARN, msg, null);
-    }
-
-    public static void w(String tag, String msg) {
-        log(Log.WARN, msg, null);
-    }
-
-    public static void w(String msg, Throwable t) {
-        log(Log.WARN, msg, t);
-    }
-
-    public static void w(String tag, String msg, Throwable t) {
-        log(Log.WARN, msg, t);
-    }
-
-    public static void e(String msg) {
-        log(Log.ERROR, msg, null);
-    }
-
-    public static void e(String tag, String msg) {
-        log(Log.ERROR, msg, null);
-    }
-
-    public static void e(String msg, Throwable t) {
-        log(Log.ERROR, msg, t);
-    }
-
-    public static void e(String tag, String msg, Throwable t) {
-        log(Log.ERROR, msg, t);
-    }
-
-    /** UI-process events: also append under filesDir. */
+    /** UI-process events: logcat + app-private file. */
     public static void ui(Context ctx, String msg) {
-        log(Log.INFO, msg, null);
-        if (ctx != null) {
-            appendToFile(localFile(ctx), formatLine("I", TAG, msg, null));
-        }
-    }
-
-    private static void log(int priority, String msg, Throwable t) {
-        final boolean ss = isSystemServer();
-        final String tag = ss ? TAG_SS : TAG;
-        if (t != null) {
-            if (priority >= Log.ERROR) {
-                Log.e(tag, msg, t);
-            } else {
-                Log.w(tag, msg, t);
-            }
-        } else {
-            Log.println(priority, tag, msg == null ? "" : msg);
-        }
-        // system_server: logcat only
-        if (ss) {
-            return;
-        }
-        String level;
-        switch (priority) {
-            case Log.DEBUG:
-                level = "D";
-                break;
-            case Log.INFO:
-                level = "I";
-                break;
-            case Log.WARN:
-                level = "W";
-                break;
-            case Log.ERROR:
-                level = "E";
-                break;
-            default:
-                level = "V";
-                break;
-        }
-        String line = formatLine(level, tag, msg, t);
-        appendToFile(new File(HOOK_LOG_PATH), line);
-        appendToFile(new File(HOOK_LOG_CACHE), line);
-        ensureHostFilesLog();
-        if (sHostFilesLog != null) {
-            appendToFile(sHostFilesLog, line);
-        }
-    }
-
-    /**
-     * Resolve hooked-app filesDir/ltwunlock.log via ActivityThread so install/hit
-     * lines survive even when /data/local/tmp is SELinux-blocked. LogActivity
-     * still may not read this path without root; logcat dump covers that.
-     */
-    private static void ensureHostFilesLog() {
-        if (sHostFilesLog != null) {
-            return;
-        }
         try {
-            Class<?> at = Class.forName("android.app.ActivityThread");
-            Object app = at.getMethod("currentApplication").invoke(null);
-            if (app == null) {
+            Log.i(TAG, msg == null ? "" : msg);
+        } catch (Throwable ignored) {
+        }
+        if (ctx != null) {
+            appendLocal(localFile(ctx), formatLine("I", TAG, msg, null));
+        }
+    }
+
+    /** Core path. Never throws. Every hook-process line → logcat + xp.log + LogRelay. */
+    static void log(int priority, String tag, String msg, Throwable t) {
+        try {
+            final boolean ss = isSystemServer();
+            if (tag == null || (ss && TAG.equals(tag))) {
+                tag = ss ? TAG_SS : TAG;
+            }
+            if (msg == null) msg = "";
+
+            // 1) logcat (keeps original channel tag)
+            try {
+                if (t != null) {
+                    Log.println(priority, tag, msg + '\n' + Log.getStackTraceString(t));
+                } else {
+                    Log.println(priority, tag, msg);
+                }
+            } catch (Throwable ignored) {
+            }
+
+            if (!sHookProcess) {
                 return;
             }
-            Object filesDir = app.getClass().getMethod("getFilesDir").invoke(app);
-            if (filesDir instanceof File) {
-                sHostFilesLog = new File((File) filesDir, LOCAL_NAME);
-            }
+
+            // 2) libxposed / LSPosed manager — always tag=LtwUnlock so search finds every line;
+            //    channel encoded in message. Prefer 3-arg (4-arg has been observed to drop).
+            xposedLog(priority, tag, msg, t);
+
+            // 3) batch relay → module LogProvider → LogActivity
+            LogRelay.enqueue(formatLine(level(priority), tag, msg, t));
         } catch (Throwable ignored) {
         }
     }
 
-    private static String formatLine(String level, String tag, String msg, Throwable t) {
+    private static void xposedLog(int priority, String channelTag, String msg, Throwable t) {
+        XposedInterface xp = sXp;
+        if (xp == null) return;
+        if (priority <= Log.DEBUG && !allowXposedLog()) {
+            // DEBUG only is soft-limited; INFO+ always goes through.
+            return;
+        }
+        String prefix = channelPrefix(channelTag);
+        String body = prefix + (msg == null ? "" : msg);
+        if (t != null) {
+            String st = Log.getStackTraceString(t);
+            if (st.length() > 3500) st = st.substring(0, 3500) + "...";
+            body = body + '\n' + st;
+        }
+        try {
+            xp.log(priority, TAG, body);
+            return;
+        } catch (Throwable ignored) {
+        }
+        // Fallback: 4-arg, then bare message
+        try {
+            if (t != null) xp.log(priority, TAG, prefix + msg, t);
+            else xp.log(priority, TAG, body);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String channelPrefix(String channelTag) {
+        if (channelTag == null || TAG.equals(channelTag)) return "";
+        if (TAG_SS.equals(channelTag)) return "[SS] ";
+        if (TAG_IMG.equals(channelTag)) return "[Img] ";
+        if (channelTag.startsWith("LtwUnlock")) {
+            return "[" + channelTag.substring("LtwUnlock".length()).replaceFirst("^-?", "") + "] ";
+        }
+        return "[" + channelTag + "] ";
+    }
+
+    private static boolean allowXposedLog() {
+        synchronized (RL) {
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (now - sWinStart > 10_000L) {
+                int dropped = sDropped;
+                sWinStart = now;
+                sWinCount = 0;
+                sDropped = 0;
+                if (dropped > 0) {
+                    XposedInterface xp = sXp;
+                    try {
+                        if (xp != null) {
+                            xp.log(Log.WARN, TAG, "(debug rate-limit: dropped " + dropped + " lines)");
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            if (sWinCount >= WIN_MAX) {
+                sDropped++;
+                return false;
+            }
+            sWinCount++;
+            return true;
+        }
+    }
+
+    private static String level(int p) {
+        switch (p) {
+            case Log.DEBUG: return "D";
+            case Log.INFO: return "I";
+            case Log.WARN: return "W";
+            case Log.ERROR: return "E";
+            default: return "V";
+        }
+    }
+
+    static String formatLine(String level, String tag, String msg, Throwable t) {
         String ts;
         synchronized (FMT) {
             ts = FMT.format(new Date());
@@ -185,84 +213,23 @@ public final class ModuleLog {
         sb.append(ts).append(' ').append(level).append('/').append(tag).append(": ");
         sb.append(msg == null ? "" : msg);
         if (t != null) {
-            sb.append('\n').append(Log.getStackTraceString(t));
+            String st = Log.getStackTraceString(t);
+            if (st.length() > 4000) st = st.substring(0, 4000) + "...";
+            sb.append('\n').append(st);
         }
         sb.append('\n');
         return sb.toString();
     }
 
-    private static void appendToFile(File file, String line) {
-        if (file == null || line == null) {
-            return;
-        }
-        LOCK.lock();
+    private static synchronized void appendLocal(File file, String line) {
         try {
-            File parent = file.getParentFile();
-            if (parent != null && !parent.exists()) {
-                //noinspection ResultOfMethodCallIgnored
-                parent.mkdirs();
-            }
-            boolean created = !file.exists();
-            try (FileOutputStream fos = new FileOutputStream(file, true);
-                 OutputStreamWriter w = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
+            try (OutputStreamWriter w = new OutputStreamWriter(
+                    new FileOutputStream(file, true), StandardCharsets.UTF_8)) {
                 w.write(line);
-                w.flush();
             }
-            if (created) {
-                tryMakeWorldReadable(file);
+            if (file.length() > MAX_LOCAL) {
+                LogProvider.trimTail(file, MAX_LOCAL / 2);
             }
-            truncateIfNeeded(file);
-        } catch (Throwable ignored) {
-            // Hook/UI must never crash on logging.
-        } finally {
-            LOCK.unlock();
-        }
-    }
-
-    private static void tryMakeWorldReadable(File file) {
-        try {
-            //noinspection ResultOfMethodCallIgnored
-            file.setReadable(true, false);
-            //noinspection ResultOfMethodCallIgnored
-            file.setWritable(true, false);
-        } catch (Throwable ignored) {
-        }
-        try {
-            Runtime.getRuntime().exec(new String[]{"chmod", "666", file.getAbsolutePath()})
-                    .waitFor();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private static void truncateIfNeeded(File file) {
-        try {
-            long len = file.length();
-            if (len <= MAX_BYTES) {
-                return;
-            }
-            long keep = MAX_BYTES / 2;
-            byte[] buf = new byte[(int) keep];
-            try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-                raf.seek(len - keep);
-                int n = raf.read(buf);
-                if (n <= 0) {
-                    return;
-                }
-                int start = 0;
-                for (int i = 0; i < n; i++) {
-                    if (buf[i] == '\n') {
-                        start = i + 1;
-                        break;
-                    }
-                }
-                try (FileOutputStream fos = new FileOutputStream(file, false)) {
-                    fos.write("--- truncated ---\n".getBytes(StandardCharsets.UTF_8));
-                    if (start < n) {
-                        fos.write(buf, start, n - start);
-                    }
-                }
-            }
-            tryMakeWorldReadable(file);
         } catch (Throwable ignored) {
         }
     }
@@ -271,210 +238,46 @@ public final class ModuleLog {
         return new File(ctx.getFilesDir(), LOCAL_NAME);
     }
 
-    /** Combined hook tmp log + local UI log + logcat dump (hook first). */
+    /** Hook relay file (written by LogProvider) + local UI log + provider diagnostics. */
     public static String readCombined(Context ctx) {
         StringBuilder sb = new StringBuilder();
-        String hook = readFile(new File(HOOK_LOG_PATH));
-        if (hook == null || hook.isEmpty()) {
-            // Rooted devices: su cat of hook log / host files log
-            hook = readViaSu("cat " + HOOK_LOG_PATH + " 2>/dev/null");
+        if (ctx != null) {
+            sb.append(LogProvider.diagText(ctx));
         }
-        String cacheHook = readFile(new File(HOOK_LOG_CACHE));
-        String local = ctx != null ? readFile(localFile(ctx)) : "";
-
-        if (hook != null && !hook.isEmpty()) {
-            sb.append("===== hook (/data/local/tmp/ltwunlock.log) =====\n");
+        String hook = ctx != null ? readFile(LogProvider.hookFile(ctx)) : "";
+        sb.append("===== hook 日志 (连接到 Windows + 系统框架, 经 LogProvider 中转) =====\n");
+        if (hook.isEmpty()) {
+            sb.append("(暂无 hook 日志)\n")
+                    .append("· 确认 LSPosed 中已启用本模块，作用域勾选 系统框架 + 连接到 Windows，并已重启\n")
+                    .append("· 打开一次「连接到 Windows」后点刷新；看上方「诊断」计数是否增加\n")
+                    .append("· 也可在 LSPosed 管理器 → 日志 搜索 LtwUnlock（含 [SS]/[Img] 前缀）\n");
+        } else {
             sb.append(hook);
-            if (!hook.endsWith("\n")) {
-                sb.append('\n');
-            }
-        } else {
-            sb.append("===== hook log empty or unreadable =====\n");
-            sb.append("(app hooks write here; if SELinux blocks, see logcat below)\n");
+            if (!hook.endsWith("\n")) sb.append('\n');
         }
-        if (cacheHook != null && !cacheHook.isEmpty()) {
-            sb.append("===== hook (/cache/ltwunlock.log) =====\n");
-            sb.append(cacheHook);
-            if (!cacheHook.endsWith("\n")) {
-                sb.append('\n');
-            }
-        }
-        if (local != null && !local.isEmpty()) {
-            sb.append("===== app (filesDir/ltwunlock.log) =====\n");
-            sb.append(local);
-            if (!local.endsWith("\n")) {
-                sb.append('\n');
-            }
-        }
-
-        sb.append(readSsSection());
-
-        String logcat = dumpLogcat();
-        sb.append("===== logcat (LtwUnlock / LtwUnlock-SS) =====\n");
-        if (logcat != null && !logcat.isEmpty()) {
-            sb.append(logcat);
-            if (!logcat.endsWith("\n")) {
-                sb.append('\n');
-            }
-        } else {
-            sb.append("(logcat dump empty — need READ_LOGS or: adb logcat -s LtwUnlock:D LtwUnlock-SS:D)\n");
-            sb.append("system_server hooks only appear under tag LtwUnlock-SS\n");
-        }
-
-        if (sb.length() == 0) {
-            return "(no logs yet)\n";
+        String local = ctx != null ? readFile(localFile(ctx)) : "";
+        if (!local.isEmpty()) {
+            sb.append("===== 模块界面日志 =====\n").append(local);
+            if (!local.endsWith("\n")) sb.append('\n');
         }
         return sb.toString();
-    }
-
-    public static final String SS_LOG_PATH = "/data/local/tmp/ltwunlock-ss.log";
-    public static final String SS_LOG_ALT = "/data/system/ltwunlock-ss.log";
-
-    /** system_server status file: direct read first, then su -c cat (stderr captured). */
-    public static String readSsSection() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("===== system_server (" + SS_LOG_PATH + ") =====\n");
-        String direct = null;
-        String directErr = null;
-        try {
-            File f = new File(SS_LOG_PATH);
-            if (!f.exists()) {
-                directErr = "not visible to app (missing or SELinux)";
-            } else if (!f.canRead()) {
-                directErr = "exists but not readable";
-            } else {
-                direct = readFile(f);
-            }
-        } catch (Throwable t) {
-            directErr = "direct read threw: " + t;
-        }
-        if (direct != null && !direct.isEmpty()) {
-            sb.append("[source: direct]\n").append(direct);
-        } else {
-            sb.append("[direct read: ").append(directErr == null ? "empty" : directErr).append("]\n");
-            String su = readProcess(new String[]{"su", "-c",
-                    "cat " + SS_LOG_PATH + " 2>&1; echo \"--- alt " + SS_LOG_ALT + " ---\"; cat "
-                            + SS_LOG_ALT + " 2>&1"}, 10000);
-            if (su != null && !su.isEmpty()) {
-                sb.append("[source: su -c cat, stderr included]\n").append(su);
-            } else {
-                sb.append("[su -c cat produced no output: no root / su denied]\n");
-                sb.append("If empty after reboot: 系统框架 scope not active or SS hooks never ran.\n");
-            }
-        }
-        if (sb.charAt(sb.length() - 1) != '\n') {
-            sb.append('\n');
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Best-effort: plain logcat (own UID on modern Android), then {@code su -c}.
-     */
-    public static String dumpLogcat() {
-        String cmd = "logcat -d -t 400 -s LtwUnlock:D LtwUnlock-SS:D LtwUnlock:V LtwUnlock-SS:V";
-        String out = readProcess(new String[]{"sh", "-c", cmd}, 8000);
-        if (out != null && out.trim().length() > 0 && !looksLikeLogcatDenied(out)) {
-            return out;
-        }
-        String viaSu = readViaSu(cmd);
-        if (viaSu != null && !viaSu.isEmpty()) {
-            return viaSu;
-        }
-        return out == null ? "" : out;
-    }
-
-    private static boolean looksLikeLogcatDenied(String out) {
-        String l = out.toLowerCase(Locale.US);
-        return l.contains("not permitted") || l.contains("permission denial")
-                || l.contains("unable to open");
-    }
-
-    private static String readViaSu(String shellCmd) {
-        String out = readProcess(new String[]{"su", "-c", shellCmd}, 10000);
-        if (out != null && !out.isEmpty()) {
-            return out;
-        }
-        // Magisk / KSU variants
-        out = readProcess(new String[]{"su", "0", "sh", "-c", shellCmd}, 10000);
-        return out == null ? "" : out;
-    }
-
-    private static String readProcess(String[] cmd, int timeoutMs) {
-        java.lang.Process p = null;
-        try {
-            ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.redirectErrorStream(true);
-            p = pb.start();
-            final StringBuilder sb = new StringBuilder();
-            final java.lang.Process proc = p;
-            Thread t = new Thread(() -> {
-                try (BufferedReader br = new BufferedReader(
-                        new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        sb.append(line).append('\n');
-                        if (sb.length() > 400_000) {
-                            break;
-                        }
-                    }
-                } catch (Throwable ignored) {
-                }
-            }, "ltw-logcat");
-            t.start();
-            t.join(timeoutMs);
-            try {
-                proc.exitValue();
-            } catch (IllegalThreadStateException pending) {
-                proc.destroy();
-            }
-            return sb.toString();
-        } catch (Throwable t) {
-            return "";
-        } finally {
-            if (p != null) {
-                try {
-                    p.destroy();
-                } catch (Throwable ignored) {
-                }
-            }
-        }
     }
 
     public static void clear(Context ctx) {
-        LOCK.lock();
+        if (ctx == null) return;
         try {
-            deleteQuiet(new File(HOOK_LOG_PATH));
-            deleteQuiet(new File(HOOK_LOG_CACHE));
-            if (ctx != null) {
-                deleteQuiet(localFile(ctx));
-            }
-        } finally {
-            LOCK.unlock();
-        }
-        // Best-effort clear via su
-        readViaSu("rm -f " + HOOK_LOG_PATH + " " + HOOK_LOG_CACHE + " " + SS_LOG_PATH + " " + SS_LOG_ALT);
-        i("logs cleared");
-        if (ctx != null) {
-            try {
-                appendToFile(localFile(ctx),
-                        formatLine("I", TAG, "UI: logs cleared by user", null));
-            } catch (Throwable ignored) {
-            }
-        }
-    }
-
-    private static void deleteQuiet(File f) {
-        try {
-            if (f.exists()) {
-                //noinspection ResultOfMethodCallIgnored
-                f.delete();
-            }
+            LogProvider.clear(ctx);
         } catch (Throwable ignored) {
         }
+        try {
+            //noinspection ResultOfMethodCallIgnored
+            localFile(ctx).delete();
+        } catch (Throwable ignored) {
+        }
+        ui(ctx, "UI: logs cleared by user");
     }
 
-    private static String readFile(File file) {
+    static String readFile(File file) {
         if (file == null || !file.exists() || !file.canRead()) {
             return "";
         }

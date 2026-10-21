@@ -52,6 +52,13 @@ public final class LogActivity extends Activity {
         titles.addView(Ui.text(this, buildHeader(), 12, R.color.ltw_on_bg_variant, false));
         top.addView(titles);
         root.addView(top);
+        TextView hint = Ui.text(this,
+                "hook 日志由 连接到 Windows 进程和系统框架(system_server) 通过本模块的 LogProvider 中转保存，无需 root。"
+                        + "同时会写入 LSPosed 管理器 → 日志 页面（标签 LtwUnlock / LtwUnlock-Img / LtwUnlock-SS）。"
+                        + "若此处为空，请先在 LSPosed 管理器日志页查看，并确认作用域已勾选且已重启。",
+                12, R.color.ltw_on_bg_variant, false);
+        hint.setPadding(0, Ui.dp(this, 8), 0, 0);
+        root.addView(hint);
 
         LinearLayout buttons = new LinearLayout(this);
         buttons.setGravity(Gravity.CENTER_VERTICAL);
@@ -109,6 +116,14 @@ public final class LogActivity extends Activity {
     }
 
     private void refresh() {
+        // Self-test: proves provider write path works from UI process
+        try {
+            android.os.Bundle pr = getContentResolver().call(
+                    LogRelay.AUTHORITY, LogProvider.METHOD_PROBE, null, null);
+            ModuleLog.ui(this, "probe ok=" + (pr != null && pr.getBoolean("ok", false)));
+        } catch (Throwable t) {
+            ModuleLog.ui(this, "probe failed: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+        }
         final String text = ModuleLog.readCombined(this);
         logView.setText(text);
         logView.post(() -> {

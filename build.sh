@@ -1,13 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
-[ -f ./env.local.sh ] && source ./env.local.sh
-: "${ANDROID_HOME:?set ANDROID_HOME}"
+source /workspace/env.sh
 BT=$ANDROID_HOME/build-tools/34.0.0
 AJ=$ANDROID_HOME/platforms/android-34/android.jar
-OUT_DIR=${OUT_DIR:-dist}
-VERSION_NAME=1.5.2
-VERSION_CODE=8
+OUT_DIR=/workspace/dist
+VERSION_NAME=${VERSION_NAME:-1.5.3}
+VERSION_CODE=${VERSION_CODE:-14}
 APK_NAME=${APK_NAME:-LtwUnlock-v${VERSION_NAME}.apk}
 mkdir -p "$OUT_DIR" build/gen build/classes build/dex build/astubs
 
@@ -49,14 +48,22 @@ with zipfile.ZipFile('build/unsigned.apk', 'a', zipfile.ZIP_DEFLATED) as z:
 PY
 
 $BT/zipalign -f -p 4 build/unsigned.apk build/aligned.apk
-# Signing: env vars or untracked ./signing.local.sh providing
-#   KS_FILE, KS_PASS, KS_ALIAS, (optional) KEY_PASS
-[ -f ./signing.local.sh ] && source ./signing.local.sh
-: "${KS_FILE:?set KS_FILE (keystore path)}"
-: "${KS_PASS:?set KS_PASS}"
-: "${KS_ALIAS:?set KS_ALIAS}"
-export KS_PASS; export KEY_PASS=${KEY_PASS:-$KS_PASS}
-$BT/apksigner sign --ks "$KS_FILE" --ks-pass env:KS_PASS --key-pass env:KEY_PASS \
+if [ ! -f release.jks ]; then
+  keytool -genkeypair -keystore release.jks -storepass ltwunlock -keypass ltwunlock \
+    -alias ltwunlock -keyalg RSA -keysize 2048 -validity 36500 \
+    -dname "CN=MQMQgo, OU=LtwUnlock, O=MQMQgo, L=Shanghai, ST=Shanghai, C=CN" >/dev/null 2>&1
+  KS_PASS=ltwunlock
+  KS_ALIAS=ltwunlock
+else
+  # Prefer project-local keystore; try known passwords from sibling modules
+  KS_PASS=ltwunlock
+  KS_ALIAS=ltwunlock
+  if ! keytool -list -keystore release.jks -storepass "$KS_PASS" >/dev/null 2>&1; then
+    KS_PASS=flymepurify
+    KS_ALIAS=purify
+  fi
+fi
+$BT/apksigner sign --ks release.jks --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" \
   --ks-key-alias "$KS_ALIAS" --out "build/$APK_NAME" build/aligned.apk
 cp -f "build/$APK_NAME" "$OUT_DIR/$APK_NAME"
 $BT/apksigner verify --print-certs "$OUT_DIR/$APK_NAME" | head -2
